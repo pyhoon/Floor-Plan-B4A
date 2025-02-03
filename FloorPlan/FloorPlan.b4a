@@ -1,0 +1,222 @@
+﻿Build1=Default,b4a.example
+File1=Main.bal
+FileGroup1=Default Group
+Group=Default Group
+Library1=core
+Library2=xui
+ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="21" android:targetSdkVersion="33"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~CreateResourceFromFile(Macro, Themes.LightTheme)~\n~'End of default text.~\n~
+Module1=Starter
+NumberOfFiles=1
+NumberOfLibraries=2
+NumberOfModules=1
+Version=12.8
+@EndOfDesignText@
+#Region  Project Attributes 
+	#ApplicationLabel: Floor Plan
+	#VersionCode: 1
+	#VersionName: 
+	'SupportedOrientations possible values: unspecified, landscape or portrait.
+	#SupportedOrientations: unspecified
+	#CanInstallToExternalStorage: False
+#End Region
+
+#Region  Activity Attributes 
+	#FullScreen: False
+	#IncludeTitle: True
+#End Region
+
+Sub Process_Globals
+	Private xui As XUI
+	Type Stroke (X As Float, Y As Float, Color As Int, Width As Float)
+End Sub
+
+Sub Globals
+	Private PnlMain As B4XView
+	Private DrawingPanel As Panel
+	Private BtnEraser As Button
+	Private ChkFrame As CheckBox
+	Private canvas As Canvas
+	Private bitmap As Bitmap
+	'Private touchX, touchY As Float
+	Private prevX, prevY As Float
+	Private drawingPaths As List
+	Private currentPath As List
+	Private redoPaths As List
+	Private strokeWidth As Float
+	Private strokeColor As Int
+	Private ModeEraser As Boolean
+End Sub
+
+Sub Activity_Create(FirstTime As Boolean)
+	Activity.LoadLayout("Main")
+	BtnNew_Click
+End Sub
+
+Sub Activity_Resume
+
+End Sub
+
+Sub Activity_Pause (UserClosed As Boolean)
+
+End Sub
+
+Private Sub BtnNew_Click
+	' Initialize lists for paths
+	drawingPaths.Initialize
+	currentPath.Initialize
+	redoPaths.Initialize
+	
+	strokeColor = xui.Color_Black
+	strokeWidth = 5
+	ModeEraser = False
+	BtnEraser.Text = "Eraser"
+	
+	' Initialize bitmap and canvas
+	bitmap.InitializeMutable(DrawingPanel.Width, DrawingPanel.Height)
+	canvas.Initialize2(bitmap)
+	DrawingPanel.SetBackgroundImage(bitmap)
+	RedrawCanvas
+
+	If ChkFrame.Checked Then
+		' Draw a rectangular frame
+		Dim frameRect As Rect
+		frameRect.Initialize(10dip, 10dip, DrawingPanel.Width - 10dip, DrawingPanel.Height - 10dip)
+		canvas.DrawRect(frameRect, xui.Color_Black, False, 2dip) ' Draw a black frame with a 2dip stroke width
+	
+		' Add the frame to the drawing paths (optional, if you want it to be part of the undo/redo history)
+		Dim framePath As List
+		framePath.Initialize
+		framePath.Add(CreateStroke(frameRect.Left, frameRect.Top, strokeColor, strokeWidth))
+		framePath.Add(CreateStroke(frameRect.Right, frameRect.Top, strokeColor, strokeWidth))
+		framePath.Add(CreateStroke(frameRect.Right, frameRect.Bottom, strokeColor, strokeWidth))
+		framePath.Add(CreateStroke(frameRect.Left, frameRect.Bottom, strokeColor, strokeWidth))
+		framePath.Add(CreateStroke(frameRect.Left, frameRect.Top, strokeColor, strokeWidth)) ' Close the frame
+		drawingPaths.Add(framePath)
+	
+		' Refresh the drawing panel
+		DrawingPanel.Invalidate
+	End If
+End Sub
+
+Private Sub BtnLoad_Click
+	' Load the saved image from internal storage
+	If File.Exists(File.DirInternal, "floor_plan.jpg") Then
+		Dim bitmap1 As Bitmap
+		bitmap1.Initialize(File.DirInternal, "floor_plan.jpg")
+		
+		' Create a mutable copy of the loaded bitmap
+		bitmap.InitializeMutable(bitmap1.Width, bitmap1.Height)
+		Dim canvas1 As Canvas
+		canvas1.Initialize2(bitmap)
+
+		Dim DestRect As Rect
+		DestRect.Initialize(0, 0, DrawingPanel.Width, DrawingPanel.Height)
+		canvas1.DrawBitmap(bitmap1, Null, DestRect) 'draws the bitmap to the destination rectangle.
+		
+		canvas.Initialize2(bitmap)
+		DrawingPanel.SetBackgroundImage(bitmap)
+		
+		' Clear existing paths and add the loaded image as the first path
+		drawingPaths.Clear
+		redoPaths.Clear
+		Dim imagePath As List
+		imagePath.Initialize
+		imagePath.Add("IMAGE")
+		imagePath.Add(bitmap1)
+		'imagePath.Add(Array As Object("IMAGE", bitmap1)) ' Special "image path"
+		drawingPaths.Add(imagePath)
+		
+		ToastMessageShow("Floor plan loaded!", True)
+	Else
+		ToastMessageShow("No saved floor plan found!", True)
+	End If
+End Sub
+
+Private Sub BtnSave_Click
+    Dim out As OutputStream
+    out = File.OpenOutput(File.DirInternal, "floor_plan.jpg", False)
+    bitmap.WriteToStream(out, 100, "JPEG")
+    out.Close
+    ToastMessageShow("Floor plan saved!", True)
+End Sub
+
+Sub BtnUndo_Click
+	If drawingPaths.Size > 0 Then
+		redoPaths.Add(drawingPaths.Get(drawingPaths.Size - 1))
+		drawingPaths.RemoveAt(drawingPaths.Size - 1)
+		RedrawCanvas
+	End If
+End Sub
+
+Private Sub BtnRedo_Click
+	If redoPaths.Size > 0 Then
+		drawingPaths.Add(redoPaths.Get(redoPaths.Size - 1))
+		redoPaths.RemoveAt(redoPaths.Size - 1)
+		RedrawCanvas
+	End If
+End Sub
+
+Private Sub BtnEraser_Click
+	ModeEraser = Not(ModeEraser)
+	If ModeEraser Then
+		strokeColor = xui.Color_White
+		strokeWidth = 20
+		BtnEraser.Text = "Pen"
+	Else
+		strokeColor = xui.Color_Black
+		strokeWidth = 5
+		BtnEraser.Text = "Eraser"
+	End If
+End Sub
+
+Sub DrawingPanel_Touch (Action As Int, X As Float, Y As Float)
+	Select Action
+		Case Activity.ACTION_DOWN
+			prevX = X
+			prevY = Y
+			currentPath.Initialize
+			currentPath.Add(CreateStroke(prevX, prevY, strokeColor, strokeWidth))
+		Case Activity.ACTION_MOVE
+			canvas.DrawLine(prevX, prevY, X, Y, strokeColor, strokeWidth)
+			prevX = X
+			prevY = Y
+			currentPath.Add(CreateStroke(prevX, prevY, strokeColor, strokeWidth))
+			DrawingPanel.Invalidate
+		Case Activity.ACTION_UP
+			drawingPaths.Add(currentPath)
+			redoPaths.Clear
+	End Select
+End Sub
+
+Sub RedrawCanvas
+	' Clear the canvas to white background
+	canvas.DrawColor(xui.Color_White)
+	
+	' Redraw all paths
+	For Each path As List In drawingPaths
+		If path.Size > 0 And path.Get(0) = "IMAGE" Then
+			' Handle the special "image path"
+			Dim bitmap2 As Bitmap = path.Get(1)
+			Dim DestRect As Rect
+			DestRect.Initialize(0, 0, DrawingPanel.Width, DrawingPanel.Height)
+			canvas.DrawBitmap(bitmap2, Null, DestRect)
+		Else
+			For i = 0 To path.Size - 2
+				Dim p1 As Stroke = path.Get(i)
+				Dim p2 As Stroke = path.Get(i + 1)
+				canvas.DrawLine(p1.X, p1.Y, p2.X, p2.Y, p1.Color, p1.Width)
+			Next
+		End If
+	Next
+	DrawingPanel.Invalidate
+End Sub
+
+Public Sub CreateStroke (X As Float, Y As Float, Color As Int, Width As Float) As Stroke
+	Dim t1 As Stroke
+	t1.Initialize
+	t1.X = X
+	t1.Y = Y
+	t1.Color = Color
+	t1.Width = Width
+	Return t1
+End Sub
